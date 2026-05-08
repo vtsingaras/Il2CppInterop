@@ -27,9 +27,18 @@ namespace Il2CppInterop.Runtime.Injection
         internal static Assembly Il2CppMscorlib = typeof(Il2CppSystem.Type).Assembly;
         internal static INativeAssemblyStruct InjectedAssembly;
         internal static INativeImageStruct InjectedImage;
-        internal static ProcessModule Il2CppModule = Process.GetCurrentProcess()
-            .Modules.OfType<ProcessModule>()
-            .Single((x) => x.ModuleName is "GameAssembly.dll" or "GameAssembly.so" or "UserAssembly.dll");
+        // Resolve the IL2CPP-compiled native module across platforms. The historic
+        // `Process.GetCurrentProcess().Modules.Single(...)` flow throws
+        // "Sequence contains no matching element" on macOS because .NET's
+        // Process.Modules on Darwin is a stub that returns only the main executable.
+        // Il2CppNativeModule.FindIl2Cpp() falls back to enumerating dyld's image list
+        // directly when Process.Modules can't help, so the same code works on
+        // Windows / Linux / macOS (Apple Silicon and Intel).
+        internal static Il2CppNativeModule Il2CppModule =
+            Il2CppNativeModule.FindIl2Cpp()
+            ?? throw new InvalidOperationException(
+                "Could not find the IL2CPP native module (GameAssembly.dll / .dylib / .so or UserAssembly.dll). " +
+                "Make sure the player loaded GameAssembly before Il2CppInterop initialised.");
 
         internal static IntPtr Il2CppHandle = NativeLibrary.Load("GameAssembly", typeof(InjectorHelpers).Assembly, null);
 
@@ -71,15 +80,58 @@ namespace Il2CppInterop.Runtime.Injection
         internal static void Setup()
         {
             if (InjectedAssembly == null) CreateInjectedAssembly();
-            if (Il2CppInteropRuntime.Instance.UnityVersion.Major >= 6000)
-                GenericMethodGetMethodHook_Unity6.ApplyHook();
-            else
-                GenericMethodGetMethodHook.ApplyHook();
-            GetTypeInfoFromTypeDefinitionIndexHook.ApplyHook();
-            GetFieldDefaultValueHook.ApplyHook();
-            ClassInit ??= FindClassInit();
-            FromIl2CppTypeHook.ApplyHook();
-            FromNameHook.ApplyHook();
+
+            // Each hook's FindTargetMethod walks IL2CPP code via XrefScannerLowLevel,
+            // which uses Iced — an x86/x64-only disassembler. On arm64 builds (Apple
+            // Silicon, Android arm64, Switch, etc.) the scan returns empty and
+            // .Single() / .Last() throws "Sequence contains no elements", aborting
+            // the entire chainloader on the first OnInvokeMethod call. The metadata
+            // hooks are an injection-quality optimisation: when they're absent, the
+            // class injector can't register types into IL2CPP at runtime, but the
+            // rest of the BepInEx pipeline (plugin discovery, patcher loading, log
+            // routing, IL2CPP-side method calls, etc.) still works. So on arm64
+            // (and as defence-in-depth on every platform where a hook can't locate
+            // its target) we skip the hook with a warning rather than killing the
+            // process.
+            TryApply(() =>
+            {
+                if (Il2CppInteropRuntime.Instance.UnityVersion.Major >= 6000)
+                    GenericMethodGetMethodHook_Unity6.ApplyHook();
+                else
+                    GenericMethodGetMethodHook.ApplyHook();
+            }, nameof(GenericMethodGetMethodHook));
+
+            TryApply(() => GetTypeInfoFromTypeDefinitionIndexHook.ApplyHook(),
+                nameof(GetTypeInfoFromTypeDefinitionIndexHook));
+            TryApply(() => GetFieldDefaultValueHook.ApplyHook(),
+                nameof(GetFieldDefaultValueHook));
+
+            try { ClassInit ??= FindClassInit(); }
+            catch (Exception ex)
+            {
+                Logger.Instance.LogWarning(ex,
+                    "Failed to locate Class::Init; class injection will be disabled.");
+            }
+
+            TryApply(() => FromIl2CppTypeHook.ApplyHook(), nameof(FromIl2CppTypeHook));
+            TryApply(() => FromNameHook.ApplyHook(), nameof(FromNameHook));
+        }
+
+        private static void TryApply(Action apply, string hookName)
+        {
+            try
+            {
+                apply();
+            }
+            catch (Exception ex) when (ex is InvalidOperationException
+                                     or NotSupportedException
+                                     or ArgumentException)
+            {
+                Logger.Instance.LogWarning(ex,
+                    "Failed to apply {Hook} (likely an arm64 / unsupported-arch xref scan); " +
+                    "the corresponding metadata hook will be inactive.",
+                    hookName);
+            }
         }
 
         internal static long CreateClassToken(IntPtr classPointer)

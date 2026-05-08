@@ -1,12 +1,12 @@
-﻿using System.Diagnostics;
-using System.Linq;
+﻿using System.Linq;
+using Il2CppInterop.Common;
 using Il2CppInterop.Common.XrefScans;
 
 namespace Il2CppInterop.Runtime;
 
 internal class MemoryUtils
 {
-    public static nint FindSignatureInModule(ProcessModule module, SignatureDefinition sigDef)
+    public static nint FindSignatureInModule(Il2CppNativeModule module, SignatureDefinition sigDef)
     {
         var ptr = FindSignatureInBlock(
             module.BaseAddress,

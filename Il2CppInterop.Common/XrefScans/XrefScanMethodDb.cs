@@ -20,12 +20,12 @@ public static class XrefScanMethodDb
             GeneratedDatabasesUtil.GetDatabasePath(MethodAddressToTokenMap.FileName));
         XrefScanCache = new MethodXrefScanCache(GeneratedDatabasesUtil.GetDatabasePath(MethodXrefScanCache.FileName));
 
-        foreach (ProcessModule module in Process.GetCurrentProcess().Modules)
-            if (module.ModuleName == "GameAssembly.dll")
-            {
-                GameAssemblyBase = (long)module.BaseAddress;
-                break;
-            }
+        // Use the cross-platform Il2CppNativeModule lookup so this works on macOS too;
+        // the historic Process.GetCurrentProcess().Modules iteration finds nothing on
+        // Darwin (Process.Modules is a stub on macOS).
+        var il2CppModule = Il2CppNativeModule.FindIl2Cpp();
+        if (il2CppModule != null)
+            GameAssemblyBase = (long)il2CppModule.BaseAddress;
     }
 
     public static MethodBase TryResolvePointer(IntPtr methodStart)
