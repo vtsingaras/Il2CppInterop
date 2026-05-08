@@ -9,6 +9,10 @@
 
   <ItemGroup>
     <PackageReference Include="Iced" Version="1.17.0"/>
+    <!-- Pure-managed arm64 disassembler used by XrefScannerArm64LowLevel.
+         Same package Cpp2IL pulls in transitively, so this doesn't add a
+         new native dependency. -->
+    <PackageReference Include="Disarm" Version="2022.1.0-master.99"/>
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="6.0.1"/>
     <PackageReference Include="System.Net.Http" Version="4.3.4"/>
   </ItemGroup>

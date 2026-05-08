@@ -1,11 +1,19 @@
+using System.Runtime.InteropServices;
 using Iced.Intel;
 
 namespace Il2CppInterop.Common.XrefScans;
 
 public static class XrefScannerLowLevel
 {
+    private static readonly bool s_isArm64 =
+        RuntimeInformation.ProcessArchitecture == Architecture.Arm64;
+
     public static IEnumerable<IntPtr> JumpTargets(IntPtr codeStart, bool ignoreRetn = false)
     {
+        // arm64 IL2CPP binaries (Apple Silicon, Android arm64, Switch, etc.)
+        // can't be decoded with Iced; route through the Disarm-backed scanner.
+        if (s_isArm64)
+            return XrefScannerArm64LowLevel.JumpTargets(codeStart, ignoreRetn);
         return JumpTargetsImpl(XrefScanner.DecoderForAddress(codeStart), ignoreRetn);
     }
 
@@ -45,6 +53,8 @@ public static class XrefScannerLowLevel
 
     public static IEnumerable<IntPtr> CallAndIndirectTargets(IntPtr pointer)
     {
+        if (s_isArm64)
+            return XrefScannerArm64LowLevel.CallAndIndirectTargets(pointer);
         return CallAndIndirectTargetsImpl(XrefScanner.DecoderForAddress(pointer, 1024 * 1024));
     }
 

@@ -123,14 +123,11 @@ namespace Il2CppInterop.Runtime.Injection
             {
                 apply();
             }
-            catch (Exception ex) when (ex is InvalidOperationException
-                                     or NotSupportedException
-                                     or ArgumentException)
+            catch (Exception ex)
             {
-                Logger.Instance.LogWarning(ex,
-                    "Failed to apply {Hook} (likely an arm64 / unsupported-arch xref scan); " +
-                    "the corresponding metadata hook will be inactive.",
-                    hookName);
+                Logger.Instance.LogWarning(
+                    "Failed to apply {Hook}: {ExType}: {ExMessage}\n{Stack}",
+                    hookName, ex.GetType().FullName, ex.Message, ex.StackTrace);
             }
         }
 
